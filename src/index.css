@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: #f1f5f9;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', sans-serif;
+}
+
+.recharts-cartesian-grid-horizontal line {
+  stroke-dasharray: 4 4;
+}
+
+.recharts-dot circle {
+  fill: white;
+  stroke-width: 2;
+}
+
+.arbitrage-glow {
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3), 0 2px 8px rgba(34, 197, 94, 0.15);
+}
+
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-slate-100;
+}

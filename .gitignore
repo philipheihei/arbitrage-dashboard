@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Env files (keep .env.example, never commit real keys)
+.env
+.env.local
+.env.*.local
+
+# Vite / editor caches
+.vite/
+*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/extensions.json
