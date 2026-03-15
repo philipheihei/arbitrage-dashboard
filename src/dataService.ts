@@ -122,114 +122,120 @@ interface RawPFMarket {
 export interface PFOutcome {
   strikePrice: number
   direction: 'high' | 'low'
-  yesPrice: number    // cents 0-100 (from order book best bid mid-point)
+  yesPrice: number      // cents 0-100
   noPrice: number
-  pfBestBid?: number  // cents, YES outcome
+  pfBestBid?: number    // cents, YES outcome
   pfBestAsk?: number
+  pfLastTrade?: number  // cents, last executed trade
 }
 
-// Fetch order book for a single Predict.fun market id and return mid-prices
+// Fetch order book for a single Predict.fun market id and return price data
 async function fetchPFOrderBook(
   id: number,
-): Promise<{ yesMid: number; noMid: number; bid?: number; ask?: number } | null> {
+): Promise<{ yesPrice: number; bid?: number; ask?: number; lastTrade?: number } | null> {
   try {
     const res = await fetch(`/api/predictfun/v1/markets/${id}/orderbook`, {
       signal: AbortSignal.timeout(6000),
     })
     if (!res.ok) return null
     const j = await res.json() as {
-      data: { bids: [number, number][]; asks: [number, number][] }
+      data: {
+        bids: [number, number][]
+        asks: [number, number][]
+        lastOrderSettled?: { price: string } | null
+      }
     }
     const bids = j.data?.bids ?? []
     const asks = j.data?.asks ?? []
-    const bestBid = bids.length > 0 ? bids[0][0] * 100 : undefined
-    const bestAsk = asks.length > 0 ? asks[0][0] * 100 : undefined
-    if (bestBid === undefined && bestAsk === undefined) return null
-    const yesMid  = bestBid !== undefined && bestAsk !== undefined
-      ? (bestBid + bestAsk) / 2
-      : (bestBid ?? bestAsk)!
-    const noMid   = 100 - yesMid
-    return { yesMid, noMid, bid: bestBid, ask: bestAsk }
+    const bestBid      = bids.length > 0 ? bids[0][0] * 100 : undefined
+    const bestAsk      = asks.length > 0 ? asks[0][0] * 100 : undefined
+    const lastTradeRaw = j.data?.lastOrderSettled?.price
+    const lastTrade    = lastTradeRaw != null ? parseFloat(lastTradeRaw) * 100 : undefined
+
+    // Prefer last executed trade price; fall back to bid-ask mid; then to 50
+    let yesPrice: number
+    if (lastTrade !== undefined && !isNaN(lastTrade)) {
+      yesPrice = lastTrade
+    } else if (bestBid !== undefined && bestAsk !== undefined) {
+      yesPrice = (bestBid + bestAsk) / 2
+    } else if (bestAsk !== undefined) {
+      yesPrice = bestAsk
+    } else if (bestBid !== undefined) {
+      yesPrice = bestBid
+    } else {
+      return null
+    }
+
+    return { yesPrice, bid: bestBid, ask: bestAsk, lastTrade }
   } catch {
     return null
   }
 }
 
-// Parse Predict.fun market title/description to extract strike price + direction.
-// Supports patterns like "Silver above $32 by ...", "GC above 2800", "↑ $110", etc.
+// Parse Predict.fun market title to extract strike price + direction.
+// Handles: "↑ $110", "↓ $80", "above $32", "below $2,000"
 function parsePFTitle(
   title: string,
-  _commodity: Commodity,
 ): { strikePrice: number; direction: 'high' | 'low' } | null {
-  // Try "above|below $NNN" pattern
-  const m1 = title.match(/(above|below)\s*\$([\d,]+(?:\.\d+)?)/i)
+  const m1 = title.match(/(↑|↓)\s*\$([\d,]+(?:\.\d+)?)/)
   if (m1) {
     return {
       strikePrice: parseFloat(m1[2].replace(',', '')),
-      direction: m1[1].toLowerCase() === 'above' ? 'high' : 'low',
+      direction: m1[1] === '↑' ? 'high' : 'low',
     }
   }
-  // Try "↑|↓ $NNN"
-  const m2 = title.match(/(↑|↓)\s*\$([\d,]+(?:\.\d+)?)/)
+  const m2 = title.match(/(above|below)\s*\$([\d,]+(?:\.\d+)?)/i)
   if (m2) {
     return {
       strikePrice: parseFloat(m2[2].replace(',', '')),
-      direction: m2[1] === '↑' ? 'high' : 'low',
+      direction: m2[1].toLowerCase() === 'above' ? 'high' : 'low',
     }
   }
   return null
 }
 
-// Keywords that identify a Predict.fun market as Silver or Gold
-const COMMODITY_KEYWORDS: Record<Commodity, string[]> = {
-  silver: ['silver', ' si ', 'si/', '/si', 'xag'],
-  gold:   ['gold',   ' gc ', 'gc/', '/gc', 'xau'],
-}
-
-function matchesCommodity(text: string, commodity: Commodity): boolean {
-  const lc = text.toLowerCase()
-  return COMMODITY_KEYWORDS[commodity].some((kw) => lc.includes(kw))
-}
-
 export async function fetchPredictFunOutcomes(
   commodity: Commodity,
-  _month: number,
+  month: number,
 ): Promise<PFOutcome[]> {
-  const searchTerms = commodity === 'silver' ? ['silver', 'SI'] : ['gold', 'GC']
+  // Use the same slug that the Predict.fun website uses
+  const slug = buildEventSlug(commodity, month)
+
+  const catRes = await fetch(`/api/predictfun/v1/categories/${slug}`, {
+    signal: AbortSignal.timeout(10000),
+  })
+  if (!catRes.ok) throw new Error(`Predict.fun category HTTP ${catRes.status}`)
+
+  const catJson = await catRes.json() as { data: { markets: RawPFMarket[] } }
+  const markets = catJson.data?.markets ?? []
+
+  // Only include markets still open for trading
+  const openMarkets = markets.filter((m) => m.tradingStatus === 'OPEN')
+
+  // Fetch all order books in parallel
+  const bookResults = await Promise.allSettled(
+    openMarkets.map((m) => fetchPFOrderBook(m.id)),
+  )
+
   const results: PFOutcome[] = []
+  for (let i = 0; i < openMarkets.length; i++) {
+    const m      = openMarkets[i]
+    const parsed = parsePFTitle(m.title)
+    if (!parsed) continue
 
-  for (const term of searchTerms) {
-    let url = `/api/predictfun/v1/markets?limit=50&search=${encodeURIComponent(term)}`
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
-      if (!res.ok) continue
-      const j = await res.json() as { data: RawPFMarket[] }
-      const markets = j.data ?? []
+    const bookResult = bookResults[i]
+    const book       = bookResult.status === 'fulfilled' ? bookResult.value : null
+    if (!book) continue  // no price data available; skip this strike
 
-      for (const m of markets) {
-        if (m.tradingStatus !== 'OPEN' && m.status !== 'REGISTERED') continue
-        if (!matchesCommodity(m.title + ' ' + (m.question ?? ''), commodity)) continue
-
-        const parsed = parsePFTitle(m.title, commodity)
-        if (!parsed) continue
-
-        const book = await fetchPFOrderBook(m.id)
-        const yesPrice = book?.yesMid ?? 50
-        const noPrice  = 100 - yesPrice
-
-        results.push({
-          strikePrice: parsed.strikePrice,
-          direction:   parsed.direction,
-          yesPrice,
-          noPrice,
-          pfBestBid: book?.bid,
-          pfBestAsk: book?.ask,
-        })
-      }
-    } catch {
-      // ignore per-term failures; outer caller gets partial results or []
-    }
-    if (results.length > 0) break  // found results with first term, skip redundant search
+    results.push({
+      strikePrice: parsed.strikePrice,
+      direction:   parsed.direction,
+      yesPrice:    book.yesPrice,
+      noPrice:     100 - book.yesPrice,
+      pfBestBid:   book.bid,
+      pfBestAsk:   book.ask,
+      pfLastTrade: book.lastTrade,
+    })
   }
 
   return results
@@ -256,14 +262,15 @@ export function buildMarketData(
       direction:     pm.direction,
       polymarketYes: pm.yesPrice,
       polymarketNo:  pm.noPrice,
-      // predictFunYes/No stay undefined when no matching PF market exists;
-      // ArbitrageTable shows "—" for those columns.
       predictFunYes: pf ? pf.yesPrice : undefined,
       predictFunNo:  pf ? pf.noPrice  : undefined,
       hasPredictFun: !!pf,
       polyBestBid:   pm.bestBid,
       polyBestAsk:   pm.bestAsk,
       polyLastTrade: pm.lastTradePrice,
+      pfBestBid:     pf?.pfBestBid,
+      pfBestAsk:     pf?.pfBestAsk,
+      pfLastTrade:   pf?.pfLastTrade,
     }
   }
 

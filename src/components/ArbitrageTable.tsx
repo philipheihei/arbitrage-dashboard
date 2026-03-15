@@ -168,12 +168,36 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
                     {row.hasPredictFun ? (
                       <table className="text-left border-separate" style={{ borderSpacing: '0 2px' }}>
                         <tbody>
-                          <tr>
-                            <td className="pr-3 text-slate-400">{side === 'yes' ? 'YES' : 'NO'}</td>
-                            <td className="font-mono font-semibold text-amber-600">
-                              {pfPrice !== undefined ? pfPrice.toFixed(1) + '¢' : '—'}
-                            </td>
-                          </tr>
+                          {(() => {
+                            const pfBid = side === 'yes' ? row.pfBestBid : (row.pfBestAsk != null ? 100 - row.pfBestAsk : undefined)
+                            const pfAsk = side === 'yes' ? row.pfBestAsk : (row.pfBestBid != null ? 100 - row.pfBestBid : undefined)
+                            const pfBookSpread = pfBid != null && pfAsk != null ? pfAsk - pfBid : null
+                            const pfLast = row.pfLastTrade != null
+                              ? (side === 'yes' ? row.pfLastTrade : 100 - row.pfLastTrade)
+                              : undefined
+                            return <>
+                              <tr>
+                                <td className="pr-3 text-slate-400">{side === 'yes' ? 'YES' : 'NO'} Bid</td>
+                                <td className="font-mono font-semibold text-green-600">{pfBid != null ? pfBid.toFixed(1) + '¢' : '—'}</td>
+                              </tr>
+                              <tr>
+                                <td className="pr-3 text-slate-400">{side === 'yes' ? 'YES' : 'NO'} Ask</td>
+                                <td className="font-mono font-semibold text-red-500">{pfAsk != null ? pfAsk.toFixed(1) + '¢' : '—'}</td>
+                              </tr>
+                              {pfBookSpread !== null && (
+                                <tr>
+                                  <td className="pr-3 text-slate-400">{t.spread}</td>
+                                  <td className="font-mono font-semibold text-slate-600">{pfBookSpread.toFixed(1)}¢</td>
+                                </tr>
+                              )}
+                              {pfLast !== undefined && (
+                                <tr>
+                                  <td className="pr-3 text-slate-400">Last</td>
+                                  <td className="font-mono text-slate-500">{pfLast.toFixed(1)}¢</td>
+                                </tr>
+                              )}
+                            </>
+                          })()}
                         </tbody>
                       </table>
                     ) : (

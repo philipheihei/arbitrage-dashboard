@@ -9,10 +9,14 @@ export interface MarketOutcome {
   predictFunYes?: number;      // undefined = no matching market on Predict.fun
   predictFunNo?: number;
   hasPredictFun?: boolean;     // true = live PF data found; false/undefined = no PF market
-  // Top-of-book order data (cents, 0-100); undefined when unavailable
-  polyBestBid?: number;        // YES best bid
-  polyBestAsk?: number;        // YES best ask
+  // Polymarket top-of-book (cents, 0-100)
+  polyBestBid?: number;
+  polyBestAsk?: number;
   polyLastTrade?: number;
+  // Predict.fun top-of-book (cents, 0-100)
+  pfBestBid?: number;
+  pfBestAsk?: number;
+  pfLastTrade?: number;
 }
 
 export interface MarketData {
