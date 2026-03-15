@@ -40,6 +40,7 @@ export const translations = {
     lowLabel: 'Will Hit Below',
     orderBook: 'Order Book (Top of Book)',
     pendingApiKey: 'Pending API Key',
+    noPfMarket: 'No market on Predict.fun',
     clickRowOrderBook: 'Click any row to view order book',
     monthNames: [
       'January','February','March','April','May','June',
@@ -91,6 +92,7 @@ export const translations = {
     lowLabel: '下跌低於',
     orderBook: '訂單簿（最優報價）',
     pendingApiKey: '待API Key',
+    noPfMarket: 'Predict.fun 無此市場',
     clickRowOrderBook: '點擊任意行查看訂單簿',
     monthNames: [
       '一月','二月','三月','四月','五月','六月',

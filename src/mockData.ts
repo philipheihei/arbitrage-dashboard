@@ -135,7 +135,11 @@ export function getMockMarketData(
     ? { high: silverHighApril, low: silverLowApril }
     : { high: goldHighApril,   low: goldLowApril   });
 
-  const outcomes = [...pair.high, ...pair.low];
+  const outcomes = [...pair.high, ...pair.low].map(o => ({
+    ...o,
+    // Mock data always has predictFunYes set → mark as having PF data for demo display
+    hasPredictFun: o.predictFunYes !== undefined,
+  }));
   const spotPrice = commodity === 'silver' ? 81.3 : 3180;
   const spotPriceChange = commodity === 'silver' ? -4.43 : -0.38;
 

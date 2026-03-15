@@ -11,13 +11,22 @@ interface ArbitrageTableProps {
 const ARB_THRESHOLD = 0.5;
 const COLS = 8;
 
-function computeRows(outcomes: MarketOutcome[]) {
+interface ComputedRow extends MarketOutcome {
+  yesSpread: number | null;
+  crossProfit: number | null;
+  hasOpportunity: boolean;
+}
+
+function computeRows(outcomes: MarketOutcome[]): ComputedRow[] {
   return outcomes.map((o) => {
-    const yesSpread   = o.predictFunYes - o.polymarketYes;
-    const crossProfit = 100 - Math.min(o.polymarketYes, o.predictFunYes) - Math.min(o.polymarketNo, o.predictFunNo);
-    const hasOpportunity = Math.abs(yesSpread) > ARB_THRESHOLD || crossProfit > ARB_THRESHOLD;
-    return { ...o, yesSpread, crossProfit, hasOpportunity };
-  });
+    if (!o.hasPredictFun || o.predictFunYes === undefined || o.predictFunNo === undefined) {
+      return { ...o, yesSpread: null, crossProfit: null, hasOpportunity: false }
+    }
+    const yesSpread   = o.predictFunYes - o.polymarketYes
+    const crossProfit = 100 - Math.min(o.polymarketYes, o.predictFunYes) - Math.min(o.polymarketNo, o.predictFunNo)
+    const hasOpportunity = Math.abs(yesSpread) > ARB_THRESHOLD || crossProfit > ARB_THRESHOLD
+    return { ...o, yesSpread, crossProfit, hasOpportunity }
+  })
 }
 
 export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTableProps) {
@@ -40,7 +49,7 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
     setExpandedKey((prev) => (prev === key ? null : key));
   }
 
-  function renderRows(rows: ReturnType<typeof computeRows>) {
+  function renderRows(rows: ComputedRow[]) {
     return rows.map((row) => {
       const key      = `${row.direction}-${row.strikePrice}`;
       const expanded = expandedKey === key;
@@ -50,7 +59,9 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
       // Pick the displayed price depending on YES/NO toggle
       const polyPrice = side === 'yes' ? row.polymarketYes : row.polymarketNo;
       const pfPrice   = side === 'yes' ? row.predictFunYes : row.predictFunNo;
-      const spread    = pfPrice - polyPrice;
+      const spread    = row.hasPredictFun && pfPrice !== undefined
+        ? pfPrice - polyPrice
+        : null;
 
       // Order-book: NO side is the mirror of YES bids/asks
       const rawBid = row.polyBestBid;
@@ -58,6 +69,8 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
       const bid = side === 'yes' ? rawBid : (rawAsk != null ? 100 - rawAsk : undefined);
       const ask = side === 'yes' ? rawAsk : (rawBid != null ? 100 - rawBid : undefined);
       const bookSpread = bid != null && ask != null ? ask - bid : null;
+
+      const crossProfit = row.crossProfit;
 
       return (
         <Fragment key={key}>
@@ -78,12 +91,16 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
             {/* Polymarket price */}
             <td className="py-2 px-2 text-right font-mono text-indigo-600">{polyPrice.toFixed(1)}¢</td>
             {/* Predict.fun price */}
-            <td className="py-2 px-2 text-right font-mono text-amber-600">{pfPrice.toFixed(1)}¢</td>
+            <td className="py-2 px-2 text-right font-mono text-amber-600">
+              {pfPrice !== undefined ? `${pfPrice.toFixed(1)}¢` : '—'}
+            </td>
             {/* Spread (PF − Poly) */}
             <td className={`py-2 px-2 text-right font-mono font-semibold ${
-              Math.abs(spread) > ARB_THRESHOLD ? 'text-green-600' : 'text-slate-400'
+              spread !== null && Math.abs(spread) > ARB_THRESHOLD ? 'text-green-600' : 'text-slate-400'
             }`}>
-              {spread > 0 ? '+' : ''}{spread.toFixed(2)}¢
+              {spread !== null
+                ? `${spread > 0 ? '+' : ''}${spread.toFixed(2)}¢`
+                : '—'}
             </td>
             {/* Poly Bid */}
             <td className="py-2 px-2 text-right font-mono text-green-600">
@@ -95,13 +112,15 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
             </td>
             {/* Book spread (ask − bid) */}
             <td className="py-2 px-2 text-right font-mono text-slate-400">
-              {bookSpread != null ? bookSpread.toFixed(1) + '¢' : '—'}
+              {bookSpread !== null ? bookSpread.toFixed(1) + '¢' : '—'}
             </td>
             {/* Cross-platform arb */}
             <td className={`py-2 px-2 text-right font-mono font-bold ${
-              row.crossProfit > ARB_THRESHOLD ? 'text-green-600' : 'text-slate-400'
+              crossProfit !== null && crossProfit > ARB_THRESHOLD ? 'text-green-600' : 'text-slate-400'
             }`}>
-              {row.crossProfit > 0 ? '+' : ''}{row.crossProfit.toFixed(2)}¢
+              {crossProfit !== null
+                ? `${crossProfit > 0 ? '+' : ''}${crossProfit.toFixed(2)}¢`
+                : '—'}
             </td>
           </tr>
 
@@ -125,7 +144,7 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
                           <td className="pr-3 text-slate-400">{side === 'yes' ? 'YES' : 'NO'} Ask</td>
                           <td className="font-mono font-semibold text-red-500">{ask != null ? ask.toFixed(1) + '¢' : '—'}</td>
                         </tr>
-                        {bookSpread != null && (
+                        {bookSpread !== null && (
                           <tr>
                             <td className="pr-3 text-slate-400">{t.spread}</td>
                             <td className="font-mono font-semibold text-slate-600">{bookSpread.toFixed(1)}¢</td>
@@ -146,7 +165,20 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
                   </div>
                   <div>
                     <div className="font-bold text-amber-600 mb-2">Predict.fun</div>
-                    <p className="text-slate-400 italic text-[11px] mt-1">{t.pendingApiKey}</p>
+                    {row.hasPredictFun ? (
+                      <table className="text-left border-separate" style={{ borderSpacing: '0 2px' }}>
+                        <tbody>
+                          <tr>
+                            <td className="pr-3 text-slate-400">{side === 'yes' ? 'YES' : 'NO'}</td>
+                            <td className="font-mono font-semibold text-amber-600">
+                              {pfPrice !== undefined ? pfPrice.toFixed(1) + '¢' : '—'}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-slate-400 italic text-[11px] mt-1">{t.noPfMarket}</p>
+                    )}
                   </div>
                 </div>
               </td>
@@ -239,11 +271,4 @@ export default function ArbitrageTable({ outcomes, commodity, t }: ArbitrageTabl
       </p>
     </div>
   );
-}
-
-
-interface ArbitrageTableProps {
-  outcomes: MarketOutcome[];
-  commodity: Commodity;
-  t: Translations;
 }

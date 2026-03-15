@@ -6,9 +6,9 @@ export interface MarketOutcome {
   direction: 'high' | 'low';  // ↑ will hit above / ↓ will hit below
   polymarketYes: number;       // cents (0-100)
   polymarketNo: number;
-  predictFunYes: number;
-  predictFunNo: number;
-  hasPredictFun?: boolean;     // false = PF API key pending
+  predictFunYes?: number;      // undefined = no matching market on Predict.fun
+  predictFunNo?: number;
+  hasPredictFun?: boolean;     // true = live PF data found; false/undefined = no PF market
   // Top-of-book order data (cents, 0-100); undefined when unavailable
   polyBestBid?: number;        // YES best bid
   polyBestAsk?: number;        // YES best ask
