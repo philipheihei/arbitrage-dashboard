@@ -1,25 +1,32 @@
-// Vercel Edge/Node serverless function – proxy for Predict.fun API.
-// Injects the secret API key server-side so it never appears in the browser bundle.
-// Matches routes: /api/predictfun/[...path]  (e.g. /api/predictfun/v1/markets)
+// Vercel serverless function – proxy for Predict.fun API.
+// Injects the API key server-side so it never appears in the browser bundle.
+// Route: /api/predictfun/[...path]  →  https://api.predict.fun/[...path]
+//
+// Uses only Node.js built-in types (@types/node) – no @vercel/node dependency.
 
-import type { VercelRequest, VercelResponse } from '@vercel/node'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const { path: pathSegments, ...queryParams } = req.query
+type VercelRequest = IncomingMessage & {
+  query: Record<string, string | string[] | undefined>
+}
 
-  // Reconstruct the upstream path (Vercel passes [...path] as an array or string)
-  const upstreamPath = Array.isArray(pathSegments)
-    ? pathSegments.join('/')
-    : (pathSegments ?? '')
+export default async function handler(req: VercelRequest, res: ServerResponse) {
+  const segments = req.query['path']
+  const upstreamPath = Array.isArray(segments)
+    ? segments.join('/')
+    : (segments ?? '')
 
-  // Forward remaining query params
-  const qs = new URLSearchParams(
-    Object.fromEntries(
-      Object.entries(queryParams).map(([k, v]) => [k, Array.isArray(v) ? v[0] : v ?? ''])
-    )
-  ).toString()
+  // Rebuild query string from every param except the catch-all 'path'
+  const qs = Object.entries(req.query)
+    .filter(([k]) => k !== 'path')
+    .map(([k, v]) => {
+      const val = Array.isArray(v) ? v[0] : (v ?? '')
+      return `${encodeURIComponent(k)}=${encodeURIComponent(val)}`
+    })
+    .join('&')
 
-  const upstreamUrl = `https://api.predict.fun/${upstreamPath}${qs ? '?' + qs : ''}`
+  const upstreamUrl =
+    `https://api.predict.fun/${upstreamPath}${qs ? '?' + qs : ''}`
 
   const upstream = await fetch(upstreamUrl, {
     method: req.method ?? 'GET',
@@ -31,8 +38,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const body = await upstream.text()
 
-  res
-    .status(upstream.status)
-    .setHeader('Content-Type', 'application/json')
-    .send(body)
+  res.statusCode = upstream.status
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.end(body)
 }
